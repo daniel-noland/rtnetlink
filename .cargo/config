@@ -1,0 +1,2 @@
+[target.x86_64-unknown-linux-gnu]
+runner = 'sudo -E strace -s 10000 -o /tmp/strace.log -ff'

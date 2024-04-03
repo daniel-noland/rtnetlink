@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use futures::stream::TryStreamExt;
+use netlink_packet_route::neighbour::NeighbourMessage;
 use rtnetlink::{new_connection, Error, Handle, IpVersion};
 
 #[tokio::main]
@@ -21,7 +22,8 @@ async fn dump_neighbours(handle: Handle) -> Result<(), Error> {
     let mut neighbours = handle
         .neighbours()
         .get()
-        .set_family(IpVersion::V4)
+        .set_bridge()
+        // .set_family(IpVersion::V4)
         .execute();
     while let Some(route) = neighbours.try_next().await? {
         println!("{route:?}");

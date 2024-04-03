@@ -8,10 +8,7 @@ use futures::{
 use netlink_packet_core::{
     NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
 };
-use netlink_packet_route::{
-    neighbour::{NeighbourFlags, NeighbourMessage},
-    RouteNetlinkMessage,
-};
+use netlink_packet_route::{AddressFamily, neighbour::{NeighbourFlags, NeighbourMessage}, RouteNetlinkMessage};
 
 use crate::{Error, Handle, IpVersion};
 
@@ -35,6 +32,13 @@ impl NeighbourGetRequest {
 
     pub fn set_family(mut self, ip_version: IpVersion) -> Self {
         self.message.header.family = ip_version.family();
+        self
+    }
+
+    /// Use the bridge address family.
+    /// Mutually exclusive with `set_family`.
+    pub fn set_bridge(mut self) -> Self {
+        self.message.header.family = AddressFamily::Bridge;
         self
     }
 

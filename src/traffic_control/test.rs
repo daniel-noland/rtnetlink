@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT
 
+use std::convert::TryInto;
 use std::process::Command;
 
 use futures::stream::TryStreamExt;
 use netlink_packet_core::ErrorMessage;
-use netlink_packet_route::{
-    tc::{TcAttribute, TcMessage},
-    AddressFamily,
-};
+use netlink_packet_route::{AddressFamily, IpProtocol, tc::{TcAttribute, TcMessage}};
+use netlink_packet_route::tc::{EthType, TcAction, TcActionAttribute, TcActionGeneric, TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionType, TcFilterFlowerOption, TcFilterU32Option, TcMirror, TcMirrorActionType, TcU32Key, TcU32Selector, TcU32SelectorFlags};
 use tokio::runtime::Runtime;
 
-use crate::{new_connection, Error::NetlinkError};
+use crate::{Error::NetlinkError, new_connection};
 
 static TEST_DUMMY_NIC: &str = "netlink-test";
 
@@ -23,6 +22,163 @@ async fn _get_qdiscs() -> Vec<TcMessage> {
         qdiscs.push(nl_msg.clone());
     }
     qdiscs
+}
+
+#[test]
+fn test_create_u32_redirect() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_u32_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 18;
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .ingress()
+            .priority(1000)
+            .index(dst_index)
+            .redirect(dst_index as u32)
+            .unwrap()
+            .execute()
+            .await
+            .unwrap()
+    }
+    rt.block_on(_create_u32_filter());
+}
+
+#[test]
+fn test_create_u32_filter() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_u32_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 18;
+        let mut sel_na = TcU32Selector::default();
+        sel_na.flags = TcU32SelectorFlags::Terminal;
+        sel_na.nkeys = 1;
+        sel_na.keys = vec![TcU32Key::default()];
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = dst_index;
+        let mut action_nla = TcAction::default();
+        action_nla.attributes = vec![
+            TcActionAttribute::Kind(TcActionMirror::KIND.to_string()),
+            TcActionAttribute::Options(vec![TcActionOption::Mirror(
+                TcActionMirrorOption::Parms(tc_mirror_nla),
+            )]),
+        ];
+        let u32_nla = vec![
+            TcFilterU32Option::Selector(sel_na),
+            TcFilterU32Option::Action(vec![action_nla]),
+        ];
+        handle
+            .traffic_filter(dst_index as i32)
+            .add()
+            .index(dst_index as i32)
+            .priority(1002)
+            .ingress()
+            .u32(&u32_nla)
+            .unwrap()
+            .execute()
+            .await
+            .unwrap()
+    }
+    rt.block_on(_create_u32_filter());
+}
+
+#[test]
+fn test_create_flower_filter() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 18;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 18; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes.push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![TcActionOption::Mirror(
+            TcActionMirrorOption::Parms(tc_mirror_nla),
+        )]));
+        handle.traffic_filter(dst_index)
+              .add()
+              .index(dst_index)
+              .priority(1009)
+              .ingress()
+              .flower(&[
+                  TcFilterFlowerOption::ClassId(1.into()),
+                  TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
+                  TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
+                  TcFilterFlowerOption::KeyEthDstMask([0xFF, 0xFF, 0xFF, 0xFF, 0, 0]),
+                  TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
+                  TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
+                  TcFilterFlowerOption::KeyEthType(EthType::IPv4),
+                  TcFilterFlowerOption::KeyIpProto(IpProtocol::Ah),
+                  TcFilterFlowerOption::KeyIpv4Src([192, 168, 1, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyIpv4SrcMask([255, 255, 255, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyIpv4Dst([192, 168, 1, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyIpv4DstMask([255, 255, 255, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::Flags(0x1),
+                  TcFilterFlowerOption::Action(vec![acts]),
+              ])
+              .unwrap()
+              .execute()
+              .await
+              .unwrap()
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_flower_filter6() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 18;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 18; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes.push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![TcActionOption::Mirror(
+            TcActionMirrorOption::Parms(tc_mirror_nla),
+        )]));
+        handle.traffic_filter(dst_index)
+              .add()
+              .index(dst_index)
+              .priority(1009)
+              .ingress()
+              .flower(&[
+                  TcFilterFlowerOption::ClassId(1.into()),
+                  TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
+                  TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
+                  TcFilterFlowerOption::KeyEthDstMask([0xFF, 0xFF, 0xFF, 0xFF, 0, 0]),
+                  TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
+                  TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
+                  TcFilterFlowerOption::KeyEthType(EthType::IPv6),
+                  TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
+                  TcFilterFlowerOption::KeyIpv6Src([0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyIpv6SrcMask([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyIpv6Dst([0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyIpv6DstMask([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
+                  TcFilterFlowerOption::KeyTcpSrc(80),
+                  TcFilterFlowerOption::KeyTcpDst(88),
+                  TcFilterFlowerOption::Action(vec![acts]),
+              ])
+              .unwrap()
+              .execute()
+              .await
+              .unwrap()
+    }
+    rt.block_on(_create_flower_filter())
 }
 
 #[test]
@@ -239,8 +395,8 @@ async fn _get_chains(ifindex: i32) -> Vec<TcMessage> {
                 break;
             }
             Err(NetlinkError(ErrorMessage {
-                code, header: _, ..
-            })) => {
+                                 code, header: _, ..
+                             })) => {
                 assert_eq!(code, std::num::NonZeroI32::new(-95));
                 eprintln!(
                     "The chain in traffic control is not supported, \
