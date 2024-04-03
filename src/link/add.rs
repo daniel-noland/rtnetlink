@@ -13,9 +13,9 @@ use netlink_packet_core::{
 
 use netlink_packet_route::{
     link::{
-        InfoBond, InfoData, InfoKind, InfoMacVlan, InfoMacVtap, InfoVeth,
-        InfoVlan, InfoVxlan, InfoXfrm, LinkAttribute, LinkFlag, LinkInfo,
-        LinkMessage, VlanQosMapping,
+        BondMode, InfoBond, InfoData, InfoKind, InfoMacVlan, InfoMacVtap,
+        InfoVeth, InfoVlan, InfoVxlan, InfoXfrm, LinkAttribute, LinkFlags,
+        LinkInfo, LinkMessage, MacVlanMode, MacVtapMode, VlanQosMapping,
     },
     RouteNetlinkMessage,
 };
@@ -45,7 +45,7 @@ impl BondAddRequest {
 
     /// Adds the `mode` attribute to the bond
     /// This is equivalent to `ip link add name NAME type bond mode MODE`.
-    pub fn mode(mut self, mode: u8) -> Self {
+    pub fn mode(mut self, mode: BondMode) -> Self {
         self.info_data.push(InfoBond::Mode(mode));
         self
     }
@@ -594,7 +594,7 @@ impl LinkAddRequest {
     ///
     /// ```rust,no_run
     /// use futures::Future;
-    /// use netlink_packet_route::link::LinkFlag;
+    /// use netlink_packet_route::link::LinkFlags;
     /// use rtnetlink::{Handle, new_connection};
     ///
     /// async fn run(handle: Handle) -> Result<(), String> {
@@ -602,9 +602,9 @@ impl LinkAddRequest {
     ///     let link_id = 6;
     ///     let mut request = handle.link().add().vlan("my-vlan-itf".into(),
     ///         link_id, vlan_id);
-    ///     request.message_mut().header.flags.push(LinkFlag::Up);
+    ///     request.message_mut().header.flags.push(LinkFlags::Up);
     ///     request.message_mut().header.change_mask.retain(
-    ///         |f| *f != LinkFlag::Up);
+    ///         |f| *f != LinkFlags::Up);
     ///     // send the request
     ///     request.execute().await.map_err(|e| format!("{}", e))
     /// }
@@ -687,7 +687,7 @@ impl LinkAddRequest {
     /// flags from MACVLAN_MODE (netlink-packet-route/src/rtnl/constants.rs)
     ///   being: _PRIVATE, _VEPA, _BRIDGE, _PASSTHRU, _SOURCE, which can be
     /// *combined*.
-    pub fn macvlan(self, name: String, index: u32, mode: u32) -> Self {
+    pub fn macvlan(self, name: String, index: u32, mode: MacVlanMode) -> Self {
         self.name(name)
             .link_info(
                 InfoKind::MacVlan,
@@ -704,7 +704,7 @@ impl LinkAddRequest {
     /// flags from MACVTAP_MODE (netlink-packet-route/src/rtnl/constants.rs)
     ///   being: _PRIVATE, _VEPA, _BRIDGE, _PASSTHRU, _SOURCE, which can be
     /// *combined*.
-    pub fn macvtap(self, name: String, index: u32, mode: u32) -> Self {
+    pub fn macvtap(self, name: String, index: u32, mode: MacVtapMode) -> Self {
         self.name(name)
             .link_info(
                 InfoKind::MacVtap,
@@ -782,8 +782,7 @@ impl LinkAddRequest {
         request
             .message_mut()
             .header
-            .flags
-            .retain(|f| *f != LinkFlag::Up);
+            .flags |= LinkFlags::Up;
         request
     }
 
@@ -796,8 +795,8 @@ impl LinkAddRequest {
     }
 
     fn up(mut self) -> Self {
-        self.message.header.flags.push(LinkFlag::Up);
-        self.message.header.change_mask.push(LinkFlag::Up);
+        self.message.header.flags |= LinkFlags::Up;
+        self.message.header.change_mask |= LinkFlags::Up;
         self
     }
 
