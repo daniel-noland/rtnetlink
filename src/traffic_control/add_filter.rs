@@ -2,8 +2,8 @@
 
 use futures::stream::StreamExt;
 use netlink_packet_core::{NetlinkMessage, NLM_F_ACK, NLM_F_REQUEST};
+use netlink_packet_route::tc::{TcFilterFlower, TcFilterFlowerOption};
 use netlink_packet_route::{
-    RouteNetlinkMessage,
     tc::{
         TcAction, TcActionAttribute, TcActionGeneric, TcActionMirror,
         TcActionMirrorOption, TcActionOption, TcActionType, TcAttribute,
@@ -11,10 +11,10 @@ use netlink_packet_route::{
         TcMirror, TcMirrorActionType, TcOption, TcU32Key, TcU32Selector,
         TcU32SelectorFlags,
     },
+    RouteNetlinkMessage,
 };
-use netlink_packet_route::tc::{TcFilterFlower, TcFilterFlowerOption};
 
-use crate::{Error, Handle, try_nl};
+use crate::{try_nl, Error, Handle};
 
 pub struct TrafficFilterNewRequest {
     handle: Handle,
@@ -172,7 +172,10 @@ impl TrafficFilterNewRequest {
         self.u32(&u32_nla)
     }
 
-    pub fn flower(mut self, options: &[TcFilterFlowerOption]) -> Result<Self, Error> {
+    pub fn flower(
+        mut self,
+        options: &[TcFilterFlowerOption],
+    ) -> Result<Self, Error> {
         if self
             .message
             .attributes
@@ -191,9 +194,7 @@ impl TrafficFilterNewRequest {
         for opt in options {
             nla_opts.push(TcOption::Flower(opt.clone()));
         }
-        self.message.attributes.push(TcAttribute::Options(
-            nla_opts,
-        ));
+        self.message.attributes.push(TcAttribute::Options(nla_opts));
         Ok(self)
     }
 }
@@ -210,11 +211,11 @@ mod test {
             TcU32SelectorFlags,
         },
     };
-    use nix::sched::{CloneFlags, setns};
+    use nix::sched::{setns, CloneFlags};
     use tokio::runtime::Runtime;
 
     use crate::{
-        Handle, NETNS_PATH, NetworkNamespace, new_connection, SELF_NS_PATH,
+        new_connection, Handle, NetworkNamespace, NETNS_PATH, SELF_NS_PATH,
     };
 
     const TEST_NS: &str = "netlink_test_filter_ns";

@@ -8,7 +8,10 @@ use futures::{
 use netlink_packet_core::{
     NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
 };
-use netlink_packet_route::{AddressFamily, neighbour::{NeighbourFlags, NeighbourMessage}, RouteNetlinkMessage};
+use netlink_packet_route::{
+    neighbour::{NeighbourFlags, NeighbourMessage},
+    AddressFamily, RouteNetlinkMessage,
+};
 
 use crate::{Error, Handle, IpVersion};
 

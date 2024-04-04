@@ -3,13 +3,22 @@
 use std::convert::TryInto;
 use std::process::Command;
 
-use futures::stream::TryStreamExt;
+use futures::stream::{TryNext, TryStreamExt};
 use netlink_packet_core::ErrorMessage;
-use netlink_packet_route::{AddressFamily, IpProtocol, tc::{TcAttribute, TcMessage}};
-use netlink_packet_route::tc::{EthType, TcAction, TcActionAttribute, TcActionGeneric, TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionType, TcFilterFlowerOption, TcFilterU32Option, TcMirror, TcMirrorActionType, TcU32Key, TcU32Selector, TcU32SelectorFlags};
+use netlink_packet_route::tc::{
+    EncKeyId, EthType, TcAction, TcActionAttribute, TcActionGeneric,
+    TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionType,
+    TcFilterFlowerOption, TcFilterU32Option, TcFlowerOptionFlags, TcMirror,
+    TcMirrorActionType, TcU32Key, TcU32Selector, TcU32SelectorFlags, VlanId,
+    VlanPrio,
+};
+use netlink_packet_route::{
+    tc::{TcAttribute, TcMessage},
+    AddressFamily, IpProtocol,
+};
 use tokio::runtime::Runtime;
 
-use crate::{Error::NetlinkError, new_connection};
+use crate::{new_connection, Error::NetlinkError};
 
 static TEST_DUMMY_NIC: &str = "netlink-test";
 
@@ -94,42 +103,74 @@ fn test_create_flower_filter() {
     async fn _create_flower_filter() {
         let (connection, handle, _) = new_connection().unwrap();
         tokio::spawn(connection);
-        let dst_index = 18;
+        let dst_index = 22;
         let mut tc_mirror_nla = TcMirror::default();
         tc_mirror_nla.generic = TcActionGeneric::default();
         tc_mirror_nla.generic.action = TcActionType::Stolen;
         tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
-        tc_mirror_nla.ifindex = 18; // dest index
+        tc_mirror_nla.ifindex = 22; // dest index
         let mut acts = TcAction::default();
-        acts.attributes.push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
-        acts.attributes.push(TcActionAttribute::Options(vec![TcActionOption::Mirror(
-            TcActionMirrorOption::Parms(tc_mirror_nla),
-        )]));
-        handle.traffic_filter(dst_index)
-              .add()
-              .index(dst_index)
-              .priority(1009)
-              .ingress()
-              .flower(&[
-                  TcFilterFlowerOption::ClassId(1.into()),
-                  TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
-                  TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
-                  TcFilterFlowerOption::KeyEthDstMask([0xFF, 0xFF, 0xFF, 0xFF, 0, 0]),
-                  TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
-                  TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
-                  TcFilterFlowerOption::KeyEthType(EthType::IPv4),
-                  TcFilterFlowerOption::KeyIpProto(IpProtocol::Ah),
-                  TcFilterFlowerOption::KeyIpv4Src([192, 168, 1, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyIpv4SrcMask([255, 255, 255, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyIpv4Dst([192, 168, 1, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyIpv4DstMask([255, 255, 255, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::Flags(0x1),
-                  TcFilterFlowerOption::Action(vec![acts]),
-              ])
-              .unwrap()
-              .execute()
-              .await
-              .unwrap()
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(dst_index)
+            .priority(1009)
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::ClassId(1.into()),
+                TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
+                TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
+                TcFilterFlowerOption::KeyEthDstMask([
+                    0xFF, 0xFF, 0xFF, 0xFF, 0, 0,
+                ]),
+                TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
+                TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
+                TcFilterFlowerOption::KeyEthType(EthType::IPv4),
+                TcFilterFlowerOption::KeyIpProto(IpProtocol::Ah),
+                TcFilterFlowerOption::KeyIpv4Src(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv4SrcMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv4Dst(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv4DstMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEncIpv4Dst(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4DstMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4Src(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4SrcMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(1000)),
+                TcFilterFlowerOption::Action(vec![acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
     }
     rt.block_on(_create_flower_filter())
 }
@@ -140,43 +181,120 @@ fn test_create_flower_filter6() {
     async fn _create_flower_filter() {
         let (connection, handle, _) = new_connection().unwrap();
         tokio::spawn(connection);
-        let dst_index = 18;
+        let dst_index = 23;
         let mut tc_mirror_nla = TcMirror::default();
         tc_mirror_nla.generic = TcActionGeneric::default();
         tc_mirror_nla.generic.action = TcActionType::Stolen;
         tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
-        tc_mirror_nla.ifindex = 18; // dest index
+        tc_mirror_nla.ifindex = 23; // dest index
         let mut acts = TcAction::default();
-        acts.attributes.push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
-        acts.attributes.push(TcActionAttribute::Options(vec![TcActionOption::Mirror(
-            TcActionMirrorOption::Parms(tc_mirror_nla),
-        )]));
-        handle.traffic_filter(dst_index)
-              .add()
-              .index(dst_index)
-              .priority(1009)
-              .ingress()
-              .flower(&[
-                  TcFilterFlowerOption::ClassId(1.into()),
-                  TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
-                  TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
-                  TcFilterFlowerOption::KeyEthDstMask([0xFF, 0xFF, 0xFF, 0xFF, 0, 0]),
-                  TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
-                  TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
-                  TcFilterFlowerOption::KeyEthType(EthType::IPv6),
-                  TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
-                  TcFilterFlowerOption::KeyIpv6Src([0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyIpv6SrcMask([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyIpv6Dst([0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyIpv6DstMask([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap()),
-                  TcFilterFlowerOption::KeyTcpSrc(80),
-                  TcFilterFlowerOption::KeyTcpDst(88),
-                  TcFilterFlowerOption::Action(vec![acts]),
-              ])
-              .unwrap()
-              .execute()
-              .await
-              .unwrap()
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(dst_index)
+            .priority(1009)
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::ClassId(2.into()),
+                TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
+                TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
+                TcFilterFlowerOption::KeyEthDstMask([
+                    0xFF, 0xFF, 0xFF, 0xFF, 0, 0,
+                ]),
+                TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
+                TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
+                TcFilterFlowerOption::KeyEthType(EthType::Vlan),
+                TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
+                TcFilterFlowerOption::KeyIpv6Src(
+                    [
+                        0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv6SrcMask(
+                    [
+                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv6Dst(
+                    [
+                        0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv6DstMask(
+                    [
+                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyTcpSrc(80),
+                TcFilterFlowerOption::KeyTcpDst(88),
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyVlanEthType(EthType::IPv6),
+                TcFilterFlowerOption::KeyVlanId(VlanId::try_new(11).unwrap()),
+                TcFilterFlowerOption::KeyVlanPrio(
+                    VlanPrio::try_new(3).unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv6Dst(
+                    [
+                        0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv6DstMask(
+                    [
+                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv6Src(
+                    [
+                        0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv6SrcMask(
+                    [
+                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0,
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(2000)),
+                TcFilterFlowerOption::Action(vec![acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
     }
     rt.block_on(_create_flower_filter())
 }
@@ -395,8 +513,8 @@ async fn _get_chains(ifindex: i32) -> Vec<TcMessage> {
                 break;
             }
             Err(NetlinkError(ErrorMessage {
-                                 code, header: _, ..
-                             })) => {
+                code, header: _, ..
+            })) => {
                 assert_eq!(code, std::num::NonZeroI32::new(-95));
                 eprintln!(
                     "The chain in traffic control is not supported, \

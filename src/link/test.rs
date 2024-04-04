@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 
 use futures::stream::TryStreamExt;
-use netlink_packet_route::link::{InfoData, InfoKind, InfoMacVlan, LinkAttribute, LinkInfo, LinkMessage, MacVlanMode};
+use netlink_packet_route::link::{
+    InfoData, InfoKind, InfoMacVlan, LinkAttribute, LinkInfo, LinkMessage,
+    MacVlanMode,
+};
 use tokio::runtime::Runtime;
 
 use crate::{new_connection, Error, LinkHandle};

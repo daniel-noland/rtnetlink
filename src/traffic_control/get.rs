@@ -8,7 +8,7 @@ use futures::{
 use netlink_packet_core::{NetlinkMessage, NLM_F_DUMP, NLM_F_REQUEST};
 use netlink_packet_route::{
     tc::{TcHandle, TcMessage},
-    RouteNetlinkMessage,
+    AddressFamily, RouteNetlinkMessage,
 };
 
 use crate::{try_rtnl, Error, Handle};
@@ -103,6 +103,13 @@ impl TrafficFilterGetRequest {
     pub(crate) fn new(handle: Handle, ifindex: i32) -> Self {
         let mut message = TcMessage::default();
         message.header.index = ifindex;
+        message.header.handle = TcHandle { major: 0, minor: 0 };
+        message.header.parent = TcHandle {
+            major: 0xffff,
+            minor: 0xfff2,
+        };
+        message.header.info = 0;
+        message.header.family = AddressFamily::Unspec;
         TrafficFilterGetRequest { handle, message }
     }
 
@@ -131,6 +138,12 @@ impl TrafficFilterGetRequest {
     /// Set parent to root.
     pub fn root(mut self) -> Self {
         self.message.header.parent = TcHandle::ROOT;
+        self
+    }
+
+    /// Set parent to clsact ingress.
+    pub fn clsact(mut self) -> Self {
+        self.message.header.parent = TcHandle::CLSACT;
         self
     }
 }

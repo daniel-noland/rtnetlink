@@ -779,10 +779,7 @@ impl LinkAddRequest {
     /// This is equivalent to `ip link add NAME type wireguard`.
     pub fn wireguard(self, name: String) -> Self {
         let mut request = self.name(name).link_info(InfoKind::Wireguard, None);
-        request
-            .message_mut()
-            .header
-            .flags |= LinkFlags::Up;
+        request.message_mut().header.flags |= LinkFlags::Up;
         request
     }
 

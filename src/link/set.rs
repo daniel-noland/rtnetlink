@@ -124,9 +124,7 @@ impl LinkSetRequest {
         if enable {
             self.message.header.flags |= LinkFlags::Promisc;
         } else {
-            self.message
-                .header
-                .flags |= LinkFlags::Promisc;
+            self.message.header.flags |= LinkFlags::Promisc;
         }
         self.message.header.change_mask |= LinkFlags::Promisc;
         self
