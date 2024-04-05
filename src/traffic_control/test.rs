@@ -9,7 +9,7 @@ use netlink_packet_route::{
     AddressFamily,
     IpProtocol, tc::{TcAttribute, TcMessage},
 };
-use netlink_packet_route::tc::{EncKeyId, EthType, TcAction, TcActionAttribute, TcActionGeneric, TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionType, TcFilterFlowerOption, TcFilterU32Option, TcFlowerOptionFlags, TcMirror, TcMirrorActionType, TcU32Key, TcU32Selector, TcU32SelectorFlags, VlanId, VlanPrio};
+use netlink_packet_route::tc::{EncKeyId, EthType, icmpv4, icmpv6, TcAction, TcActionAttribute, TcActionGeneric, TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionType, TcFilterFlowerOption, TcFilterU32Option, TcFlowerOptionFlags, TcMirror, TcMirrorActionType, TcU32Key, TcU32Selector, TcU32SelectorFlags, VlanId, VlanPrio};
 use tokio::runtime::Runtime;
 
 use crate::{Error::NetlinkError, new_connection};
@@ -213,7 +213,7 @@ fn test_create_flower_filter() {
                 TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
                 TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
                 TcFilterFlowerOption::KeyEthType(EthType::IPv4),
-                TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
+                TcFilterFlowerOption::KeyIpProto(IpProtocol::Icmp),
                 TcFilterFlowerOption::KeyIpv4Src(
                     [192, 168, 1, 0].try_into().unwrap(),
                 ),
@@ -240,6 +240,10 @@ fn test_create_flower_filter() {
                     [255, 255, 255, 0].try_into().unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(1000)),
+                TcFilterFlowerOption::KeyIcmpv4Code(icmpv4::Code::EchoRequest(icmpv4::EchoRequest::NoCode)),
+                TcFilterFlowerOption::KeyIcmpv4CodeMask(0xab),
+                TcFilterFlowerOption::KeyIcmpv4Type(icmpv4::Type::EchoReply),
+                TcFilterFlowerOption::KeyIcmpv4TypeMask(0xcd),
                 TcFilterFlowerOption::Action(vec![acts]),
             ])
             .unwrap()
@@ -279,6 +283,7 @@ fn test_create_flower_filter6() {
             .add()
             .index(dst_index)
             .priority(1009)
+            .protocol(EthType::Vlan.as_u16().to_be())
             .ingress()
             .flower(&[
                 TcFilterFlowerOption::ClassId(2.into()),
@@ -290,7 +295,7 @@ fn test_create_flower_filter6() {
                 TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
                 TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
                 TcFilterFlowerOption::KeyEthType(EthType::Vlan),
-                TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
+                // TcFilterFlowerOption::KeyIpProto(IpProtocol::Icmp),
                 TcFilterFlowerOption::KeyIpv6Src(
                     [
                         0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
@@ -323,10 +328,11 @@ fn test_create_flower_filter6() {
                         .try_into()
                         .unwrap(),
                 ),
-                TcFilterFlowerOption::KeyTcpSrc(80),
-                TcFilterFlowerOption::KeyTcpDst(88),
+                // TcFilterFlowerOption::KeyTcpSrc(80),
+                // TcFilterFlowerOption::KeyTcpDst(88),
                 TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
                 TcFilterFlowerOption::KeyVlanEthType(EthType::IPv6),
+                // TcFilterFlowerOption::KeyIpProto(IpProtocol::Icmp),
                 TcFilterFlowerOption::KeyVlanId(VlanId::try_new(11).unwrap()),
                 TcFilterFlowerOption::KeyVlanPrio(
                     VlanPrio::try_new(3).unwrap(),
@@ -364,8 +370,12 @@ fn test_create_flower_filter6() {
                         .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(2000)),
-                TcFilterFlowerOption::KeyTcpSrcMask(0x00ff),
-                TcFilterFlowerOption::KeyTcpDstMask(0x0a0a),
+                // TcFilterFlowerOption::KeyTcpSrcMask(0x00ff),
+                // TcFilterFlowerOption::KeyTcpDstMask(0x0a0a),
+                TcFilterFlowerOption::KeyIcmpv6Code(1),
+                TcFilterFlowerOption::KeyIcmpv6CodeMask(0xac),
+                TcFilterFlowerOption::KeyIcmpv6Type(icmpv6::Type::DestinationUnreachable),
+                TcFilterFlowerOption::KeyIcmpv6TypeMask(0xde),
                 TcFilterFlowerOption::Action(vec![acts]),
             ])
             .unwrap()
