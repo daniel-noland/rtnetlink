@@ -5,9 +5,10 @@ use super::{
     TrafficClassGetRequest, TrafficFilterGetRequest, TrafficFilterNewRequest,
 };
 
-use crate::Handle;
+use crate::{Handle, TrafficActionDelRequest, TrafficActionGetRequest, TrafficChainNewRequest};
 use netlink_packet_core::{NLM_F_CREATE, NLM_F_EXCL, NLM_F_REPLACE};
 use netlink_packet_route::tc::TcMessage;
+use crate::traffic_control::add_action::TrafficActionNewRequest;
 
 pub struct QDiscHandle(Handle);
 
@@ -128,9 +129,41 @@ impl TrafficChainHandle {
         TrafficChainHandle { handle, ifindex }
     }
 
+    pub fn parent(mut self, parent: u32) -> Self {
+        self.ifindex = parent as i32;
+        self
+    }
+
     /// Retrieve the list of chain (equivalent to
     /// `tc chain show dev <iface_name>`)
     pub fn get(&mut self) -> TrafficChainGetRequest {
         TrafficChainGetRequest::new(self.handle.clone(), self.ifindex)
+    }
+
+    pub fn add(&mut self) -> TrafficChainNewRequest {
+        TrafficChainNewRequest::new(self.handle.clone(), self.ifindex, NLM_F_EXCL | NLM_F_CREATE)
+    }
+}
+
+#[non_exhaustive]
+pub struct TrafficActionHandle {
+    handle: Handle,
+}
+
+impl TrafficActionHandle {
+    pub fn new(handle: Handle) -> Self {
+        TrafficActionHandle { handle }
+    }
+
+    pub fn get(&mut self) -> TrafficActionGetRequest {
+        TrafficActionGetRequest::new(self.handle.clone())
+    }
+
+    pub fn add(&mut self) -> TrafficActionNewRequest {
+        TrafficActionNewRequest::new(self.handle.clone())
+    }
+
+    pub fn del(&mut self) -> TrafficActionDelRequest {
+        TrafficActionDelRequest::new(self.handle.clone())
     }
 }

@@ -5,14 +5,25 @@ use std::process::Command;
 
 use futures::stream::TryStreamExt;
 use netlink_packet_core::ErrorMessage;
-use netlink_packet_route::{
-    AddressFamily,
-    IpProtocol, tc::{TcAttribute, TcMessage},
+use netlink_packet_route::tc::filters::ethernet::{EthType, VlanId, VlanPrio};
+use netlink_packet_route::tc::{
+    arp, icmpv4, icmpv6, TcAction, TcActionAttribute, TcActionGeneric,
+    TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionTunnelKey,
+    TcActionTunnelKeyOption, TcActionType, TcFilterFlowerOption,
+    TcFilterU32Option, TcFlowerOptionFlags, TcMirror, TcMirrorActionType,
+    TcTunnelKeyAction, TcTunnelParams, TcU32Key, TcU32Selector,
+    TcU32SelectorFlags, TcpFlags,
 };
-use netlink_packet_route::tc::{EncKeyId, EthType, icmpv4, icmpv6, TcAction, TcActionAttribute, TcActionGeneric, TcActionMirror, TcActionMirrorOption, TcActionOption, TcActionType, TcFilterFlowerOption, TcFilterU32Option, TcFlowerOptionFlags, TcMirror, TcMirrorActionType, TcU32Key, TcU32Selector, TcU32SelectorFlags, VlanId, VlanPrio};
+use netlink_packet_route::{
+    tc::{TcAttribute, TcMessage},
+    AddressFamily, EncKeyId, IpProtocol, RouteNetlinkMessage,
+    RouteNetlinkMessageBuffer,
+};
+use netlink_packet_utils::{Parseable, ParseableParametrized};
+use nix::libc::{RTM_GETACTION, RTM_NEWACTION};
 use tokio::runtime::Runtime;
 
-use crate::{Error::NetlinkError, new_connection};
+use crate::{new_connection, Error::NetlinkError};
 
 static TEST_DUMMY_NIC: &str = "netlink-test";
 
@@ -179,6 +190,86 @@ fn test_create_flower_filter_sctp() {
 }
 
 #[test]
+fn test_create_flower_filter_arp() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 22;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 22; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(dst_index)
+            .priority(1009)
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::ClassId(1.into()),
+                TcFilterFlowerOption::Indev("x".as_bytes().to_vec()),
+                TcFilterFlowerOption::KeyEthDst([0xde, 0xad, 0xbe, 0xef, 0, 0]),
+                TcFilterFlowerOption::KeyEthDstMask([
+                    0xFF, 0xFF, 0xFF, 0xFF, 0, 0,
+                ]),
+                TcFilterFlowerOption::KeyEthSrc([1, 2, 3, 4, 5, 6]),
+                TcFilterFlowerOption::KeyEthSrcMask([7, 8, 9, 0xa, 0xb, 0xc]),
+                TcFilterFlowerOption::KeyEthType(EthType::Arp),
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEncIpv4Dst(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4DstMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4Src(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4SrcMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(1000)),
+                TcFilterFlowerOption::KeyEncUdpSrcPort(4789),
+                TcFilterFlowerOption::KeyEncUdpSrcPortMask(0x0b0b),
+                TcFilterFlowerOption::KeyEncUdpDstPort(4789),
+                TcFilterFlowerOption::KeyEncUdpDstPortMask(0xa0a0),
+                TcFilterFlowerOption::KeyArpOp(arp::Operation::Request),
+                TcFilterFlowerOption::KeyArpOpMask(0xab),
+                TcFilterFlowerOption::KeyArpSha([1, 2, 3, 4, 5, 6]),
+                TcFilterFlowerOption::KeyArpShaMask([7, 8, 9, 0xa, 0xb, 0xc]),
+                TcFilterFlowerOption::KeyArpTha(
+                    [6, 5, 4, 3, 2, 1].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyArpThaMask(
+                    [0xc, 0xb, 0xa, 9, 8, 7].try_into().unwrap(),
+                ),
+                // TcFilterFlowerOption::FlowerKeyFlags(FlowerKeyFlags::TCA_FLOWER_KEY_FLAGS_IS_FRAGMENT | FlowerKeyFlags::TCA_FLOWER_KEY_FLAGS_FRAG_IS_FIRST),
+                TcFilterFlowerOption::Action(vec![acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
 fn test_create_flower_filter() {
     let rt = Runtime::new().unwrap();
     async fn _create_flower_filter() {
@@ -240,7 +331,9 @@ fn test_create_flower_filter() {
                     [255, 255, 255, 0].try_into().unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(1000)),
-                TcFilterFlowerOption::KeyIcmpv4Code(icmpv4::Code::EchoRequest(icmpv4::EchoRequest::NoCode)),
+                TcFilterFlowerOption::KeyIcmpv4Code(icmpv4::Code::EchoRequest(
+                    icmpv4::EchoRequest::NoCode,
+                )),
                 TcFilterFlowerOption::KeyIcmpv4CodeMask(0xab),
                 TcFilterFlowerOption::KeyIcmpv4Type(icmpv4::Type::EchoReply),
                 TcFilterFlowerOption::KeyIcmpv4TypeMask(0xcd),
@@ -301,32 +394,32 @@ fn test_create_flower_filter6() {
                         0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyIpv6SrcMask(
                     [
                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyIpv6Dst(
                     [
                         0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyIpv6DstMask(
                     [
                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 // TcFilterFlowerOption::KeyTcpSrc(80),
                 // TcFilterFlowerOption::KeyTcpDst(88),
@@ -342,39 +435,41 @@ fn test_create_flower_filter6() {
                         0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncIpv6DstMask(
                     [
                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncIpv6Src(
                     [
                         0xfe, 0x80, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncIpv6SrcMask(
                     [
                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0,
                     ]
-                        .try_into()
-                        .unwrap(),
+                    .try_into()
+                    .unwrap(),
                 ),
                 TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(2000)),
                 // TcFilterFlowerOption::KeyTcpSrcMask(0x00ff),
                 // TcFilterFlowerOption::KeyTcpDstMask(0x0a0a),
                 TcFilterFlowerOption::KeyIcmpv6Code(1),
                 TcFilterFlowerOption::KeyIcmpv6CodeMask(0xac),
-                TcFilterFlowerOption::KeyIcmpv6Type(icmpv6::Type::DestinationUnreachable),
+                TcFilterFlowerOption::KeyIcmpv6Type(
+                    icmpv6::Type::DestinationUnreachable,
+                ),
                 TcFilterFlowerOption::KeyIcmpv6TypeMask(0xde),
                 TcFilterFlowerOption::Action(vec![acts]),
             ])
@@ -390,6 +485,640 @@ fn test_create_flower_filter6() {
         }
     }
     rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_flower_filter_mpls() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 23;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 23; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(dst_index)
+            .priority(1009)
+            .protocol(EthType::MplsUnicast.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEthType(EthType::MplsUnicast),
+                TcFilterFlowerOption::KeyMplsTtl(64),
+                TcFilterFlowerOption::KeyMplsTc(0x2),
+                TcFilterFlowerOption::KeyMplsBos(0x1),
+                TcFilterFlowerOption::KeyMplsLabel(100),
+                TcFilterFlowerOption::Action(vec![acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_flower_filter_tcp_flags() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 23;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 23; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(dst_index)
+            .priority(1009)
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEthType(EthType::IPv4),
+                TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
+                TcFilterFlowerOption::KeyTcpFlags(TcpFlags::Syn),
+                TcFilterFlowerOption::KeyTcpFlagsMask(0xab),
+                TcFilterFlowerOption::KeyIpTos(0x2),
+                TcFilterFlowerOption::KeyIpTtl(64),
+                TcFilterFlowerOption::KeyIpTtlMask(0xa0),
+                TcFilterFlowerOption::Action(vec![acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_flower_filter_cvlan() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 23;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 23; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(dst_index)
+            .priority(1009)
+            .protocol(EthType::Qinq.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEthType(EthType::Qinq),
+                TcFilterFlowerOption::KeyVlanId(VlanId::try_new(11).unwrap()),
+                TcFilterFlowerOption::KeyVlanEthType(EthType::Vlan),
+                TcFilterFlowerOption::KeyVlanPrio(
+                    VlanPrio::try_new(3).unwrap(),
+                ),
+                TcFilterFlowerOption::KeyCvlanEthType(EthType::IPv4),
+                TcFilterFlowerOption::KeyCvlanId(VlanId::try_new(12).unwrap()),
+                TcFilterFlowerOption::KeyCvlanPrio(
+                    VlanPrio::try_new(4).unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpProto(IpProtocol::Tcp),
+                TcFilterFlowerOption::KeyTcpFlags(TcpFlags::Syn),
+                TcFilterFlowerOption::KeyTcpFlagsMask(0xab),
+                TcFilterFlowerOption::KeyIpTos(0x2),
+                TcFilterFlowerOption::KeyIpTtl(64),
+                TcFilterFlowerOption::KeyIpTtlMask(0xa0),
+                TcFilterFlowerOption::KeyEncIpTtl(64),
+                TcFilterFlowerOption::KeyEncIpTtlMask(0xa0),
+                TcFilterFlowerOption::KeyEncIpTos(0x2),
+                TcFilterFlowerOption::KeyEncIpTosMask(0x0f),
+                TcFilterFlowerOption::Action(vec![acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_flower_geneve_opts() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 21;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        tc_mirror_nla.generic.index = 1;
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 22; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        let mut acts2 = TcAction::default();
+        let mut tc_tunnel_key = TcTunnelParams::default();
+        tc_tunnel_key.generic = TcActionGeneric::default();
+        tc_tunnel_key.generic.index = 1;
+        tc_tunnel_key.generic.action = TcActionType::Pipe;
+        tc_tunnel_key.tunnel_key_action = TcTunnelKeyAction::Set;
+        acts2
+            .attributes
+            .push(TcActionAttribute::Kind(TcActionTunnelKey::KIND.to_string()));
+        acts2.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::Params(
+                tc_tunnel_key,
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncKeyId(
+                EncKeyId::new(1000),
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncIpv4Dst(
+                [192, 168, 1, 0].try_into().unwrap(),
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncIpv4Src(
+                [192, 168, 1, 0].try_into().unwrap(),
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncTtl(64)),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyNoChecksum(
+                true,
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncTos(0x2)),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(17)
+            .priority(1007)
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                // TcFilterFlowerOption::KeyEncOpts(EncOpts::Geneve(vec![
+                //     GeneveEncOpts::Class(GeneveClass::new(0x1)).into(),
+                //     GeneveEncOpts::Type(GeneveType::new(0x2)).into(),
+                //     GeneveEncOpts::Data(GeneveData::new(vec![
+                //         0x3456
+                //     ]))
+                //     .into(),
+                // ])),
+                // TcFilterFlowerOption::KeyEncOptsMask(EncOpts::Geneve(vec![
+                //     GeneveEncOpts::Class(GeneveClass::new(0x1)).into(),
+                //     GeneveEncOpts::Type(GeneveType::new(0x2)).into(),
+                //     GeneveEncOpts::Data(GeneveData::new(vec![
+                //         0x3456
+                //     ]))
+                //         .into(),
+                // ])),
+                TcFilterFlowerOption::Action(vec![acts2, acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_flower_tunnel_key_unset() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 17;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        // tc_mirror_nla.generic.index = 1;
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 22; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        let mut acts2 = TcAction::default();
+        let mut tc_tunnel_key = TcTunnelParams::default();
+        tc_tunnel_key.generic = TcActionGeneric::default();
+        // tc_tunnel_key.generic.index = 1;
+        tc_tunnel_key.generic.action = TcActionType::Pipe;
+        tc_tunnel_key.tunnel_key_action = TcTunnelKeyAction::Release;
+        acts2
+            .attributes
+            .push(TcActionAttribute::Kind(TcActionTunnelKey::KIND.to_string()));
+        acts2.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::Params(
+                tc_tunnel_key,
+            )),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(22)
+            .priority(1007)
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEthType(EthType::IPv4),
+                TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(1000)),
+                TcFilterFlowerOption::KeyEncIpv4Dst(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4Src(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncUdpDstPort(4789),
+                // TcFilterFlowerOption::KeyEncUdpSrcPort(4789),
+                TcFilterFlowerOption::KeyEncIpTtl(64),
+                TcFilterFlowerOption::KeyEncIpTos(0x2),
+                TcFilterFlowerOption::Action(vec![acts2, acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_create_fancy_actions() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_flower_filter() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 17;
+        let mut tc_mirror_nla = TcMirror::default();
+        tc_mirror_nla.generic = TcActionGeneric::default();
+        // tc_mirror_nla.generic.index = 1;
+        tc_mirror_nla.generic.action = TcActionType::Stolen;
+        tc_mirror_nla.eaction = TcMirrorActionType::EgressRedir;
+        tc_mirror_nla.ifindex = 22; // dest index
+        let mut acts = TcAction::default();
+        acts.attributes
+            .push(TcActionAttribute::Kind(TcActionMirror::KIND.to_string()));
+        acts.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Mirror(TcActionMirrorOption::Parms(tc_mirror_nla)),
+        ]));
+        let mut acts2 = TcAction::default();
+        let mut tc_tunnel_key = TcTunnelParams::default();
+        tc_tunnel_key.generic = TcActionGeneric::default();
+        // tc_tunnel_key.generic.index = 1;
+        tc_tunnel_key.generic.action = TcActionType::Pipe;
+        tc_tunnel_key.tunnel_key_action = TcTunnelKeyAction::Release;
+        acts2
+            .attributes
+            .push(TcActionAttribute::Kind(TcActionTunnelKey::KIND.to_string()));
+        acts2.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::Params(
+                tc_tunnel_key,
+            )),
+        ]));
+        handle
+            .traffic_filter(dst_index)
+            .add()
+            .index(22)
+            .priority(1007)
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEthType(EthType::IPv4),
+                TcFilterFlowerOption::KeyEncKeyId(EncKeyId::new(1000)),
+                TcFilterFlowerOption::KeyEncIpv4Dst(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncIpv4Src(
+                    [192, 168, 1, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyEncUdpDstPort(4789),
+                // TcFilterFlowerOption::KeyEncUdpSrcPort(4789),
+                TcFilterFlowerOption::KeyEncIpTtl(64),
+                TcFilterFlowerOption::KeyEncIpTos(0x2),
+                TcFilterFlowerOption::Action(vec![acts2, acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_filter(dst_index).get();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_flower_filter())
+}
+
+#[test]
+fn test_get_actions() {
+    async fn _test_get_actions() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let mut get = handle
+            .traffic_action()
+            .get()
+            .kind("mirred".to_string())
+            .execute();
+        while let Some(msg) = get.try_next().await.unwrap() {
+            println!("biscuits: {msg:?}");
+        }
+    }
+    let rt = Runtime::new().unwrap();
+    rt.block_on(_test_get_actions());
+}
+
+#[test]
+fn test_get_actions_tunnel_key() {
+    async fn _test_get_actions() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let mut get = handle
+            .traffic_action()
+            .get()
+            .kind("tunnel_key".to_string())
+            .execute();
+        while let Some(msg) = get.try_next().await.unwrap() {
+            println!("biscuits: {msg:?}");
+        }
+    }
+    let rt = Runtime::new().unwrap();
+    rt.block_on(_test_get_actions());
+}
+
+#[test]
+fn test_add_action_recorded_correct() {
+    let buf = hex::decode("0000000068000100640001000f00010074756e6e656c5f6b657900005000028008000700000003e808000300c0a8016208000400c0a8016305000d004000000005000c000200000005000a00010000001c000200630000000000000003000000000000000000000001000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_NEWACTION).unwrap();
+    println!("{:?}", parsed);
+}
+
+#[test]
+fn test_add_action_recorded_incorrect() {
+    let buf = hex::decode("0000000088000100840001000f00010074756e6e656c5f6b65790000500002001c00020063000000000000000300000000000000000000000100000008000700000003e808000400c0a8016208000300c0a8016305000d004000000005000a000100000005000c0002000000200002001c0002000000000000000000ffffffff000000000000000001000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_NEWACTION).unwrap();
+    println!("{:?}", parsed);
+
+}
+
+#[test]
+fn test_add_action_tunnel_key() {
+    async fn _add_action_tunnel_key() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let mut action = TcAction::default();
+        let mut tc_tunnel_key = TcTunnelParams::default();
+        tc_tunnel_key.generic = TcActionGeneric::default();
+        tc_tunnel_key.generic.index = 102;
+        tc_tunnel_key.generic.action = TcActionType::Pipe;
+        tc_tunnel_key.tunnel_key_action = TcTunnelKeyAction::Set;
+        action
+            .attributes
+            .push(TcActionAttribute::Kind(TcActionTunnelKey::KIND.to_string()));
+        action.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::Params(
+                tc_tunnel_key,
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncKeyId(
+                EncKeyId::new(1000),
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncIpv4Dst(
+                [192, 168, 1, 97].try_into().unwrap(),
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncIpv4Src(
+                [192, 168, 1, 99].try_into().unwrap(),
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncTtl(64)),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyNoChecksum(
+                true,
+            )),
+            TcActionOption::TunnelKey(TcActionTunnelKeyOption::KeyEncTos(0x2)),
+        ]));
+        let mut resp = handle
+            .traffic_action()
+            .add()
+            .action(action)
+            .execute()
+            .await;
+        while let Some(msg) = resp.try_next().await.unwrap() {
+            println!("biscuits: {msg:?}");
+        }
+    }
+    let rt = Runtime::new().unwrap();
+    rt.block_on(_add_action_tunnel_key());
+}
+
+#[test]
+fn del_action_tunnel_key() {
+    async fn _del_action_tunnel_key() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let mut action = TcAction::default();
+        action
+            .attributes
+            .push(TcActionAttribute::Kind(TcActionTunnelKey::KIND.to_string()));
+        action
+            .attributes
+            .push(TcActionAttribute::Index(102));
+        handle
+            .traffic_action()
+            .del()
+            .action(action)
+            .execute()
+            .await
+            .unwrap();
+    }
+    let rt = Runtime::new().unwrap();
+    rt.block_on(_del_action_tunnel_key());
+}
+
+#[test]
+fn test_list_actions_buffer() {
+    let buf = hex::decode("0000000018000100140001000f00010074756e6e656c5f6b657900000c0002000100000001000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_GETACTION).unwrap();
+    println!("{:?}", parsed);
+}
+
+#[test]
+fn test_list_actions_buffer2() {
+    let buf = hex::decode("0000000018000100140001000f00010074756e6e656c5f6b657900000c0002000100000001000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_GETACTION).unwrap();
+    println!("{:?}", parsed);
+}
+
+#[test]
+fn test_list_actions_buffer3() {
+    let buf = hex::decode("0300000014020100b00000000b0001006d6972726564000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a000000000048000200200002000100000000000000040000000100000000000000010000000a00000024000100f44a000000000000f44a00000000000000000000000000000000000000000000b00001000b0001006d6972726564000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a000000000048000200200002000200000000000000040000000100000000000000010000000a000000240001001a410000000000001a4100000000000000000000000000000000000000000000b00002000b0001006d6972726564000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a000000000048000200200002000300000000000000040000000100000000000000010000000100000024000100e702000000000000e70200000000000000000000000000000000000000000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_GETACTION).unwrap();
+    println!("{parsed:?}");
+}
+
+#[test]
+fn test_list_actions_buffer4() {
+    let buf = hex::decode("0300000014020100b00000000b0001006d6972726564000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a000000000048000200200002000100000000000000040000000100000000000000010000000a00000024000100f44a000000000000f44a00000000000000000000000000000000000000000000b00001000b0001006d6972726564000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a000000000048000200200002000200000000000000040000000100000000000000010000000a000000240001001a410000000000001a4100000000000000000000000000000000000000000000b00002000b0001006d6972726564000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a000000000048000200200002000300000000000000040000000100000000000000010000000100000024000100e702000000000000e70200000000000000000000000000000000000000000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    // let parsed = NetlinkMessage::parse(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_GETACTION).unwrap();
+    println!("{:?}", parsed);
+}
+
+#[test]
+fn test_list_actions_tunnel_key() {
+    let buf = hex::decode("030000008c020100d80000000f00010074756e6e656c5f6b6579000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a00000000006c0002001c00020001000000000000000300000001000000000000000100000008000700000003e808000300ac12010108000400ac1201020600090012b5000005000a0001000000240001007c0f0000000000007c0f00000000000000000000000000000000000000000000d80001000f00010074756e6e656c5f6b6579000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a00000000006c0002001c00020002000000000000000300000001000000000000000100000008000700000007d008000300ac12010108000400ac1201030600090012b5000005000a000100000024000100210d000000000000210d00000000000000000000000000000000000000000000d80002000f00010074756e6e656c5f6b6579000044000400140001000000000000000000000000000000000014000700000000000000000000000000000000001800030000000000000000000000000000000000000000000c000900000000000300000008000a00000000006c0002001c0002000300000000000000030000000100000000000000010000000800070000000bb808000300ac12010108000400ac1201040600090012b5000005000a0001000000240001006d0a0000000000006d0a00000000000000000000000000000000000000000000").unwrap();
+    let buf = RouteNetlinkMessageBuffer::new(&buf);
+    let parsed =
+        RouteNetlinkMessage::parse_with_param(&buf, RTM_GETACTION).unwrap();
+    println!("{:?}", parsed);
+}
+
+// #[test]
+// fn test_create_list_actions() {
+//     let rt = Runtime::new().unwrap();
+//     async fn _list_actions() {
+//         let (connection, handle, _) = new_connection().unwrap();
+//         tokio::spawn(connection);
+//         let mut get = handle.traffic_action().get().action("mirred".to_string()).execute();
+//         while let Some(msg) = get.try_next().await.unwrap() {
+//             println!("biscuits: {:?}", msg);
+//         }
+//     }
+//     rt.block_on(_list_actions())
+// }
+
+#[test]
+fn test_create_fancy_chain() {
+    let rt = Runtime::new().unwrap();
+    async fn _create_fancy_chain() {
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let dst_index = 21;
+        handle
+            .traffic_chain(dst_index)
+            .add()
+            .ingress()
+            .index(dst_index)
+            // .priority(1007)
+            .chain(23)
+            .unwrap()
+            .protocol(EthType::IPv4.as_u16().to_be())
+            .ingress()
+            .flower(&[
+                // TcFilterFlowerOption::Flags(TcFlowerOptionFlags::SkipHw),
+                TcFilterFlowerOption::KeyEthType(EthType::IPv4),
+                TcFilterFlowerOption::KeyIpv4Dst(
+                    [192, 168, 0, 0].try_into().unwrap(),
+                ),
+                TcFilterFlowerOption::KeyIpv4DstMask(
+                    [255, 255, 255, 0].try_into().unwrap(),
+                ),
+                // TcFilterFlowerOption::KeyEncOpts(EncOpts::Geneve(vec![
+                //     GeneveEncOpts::Class(GeneveClass::new(0x1)).into(),
+                //     GeneveEncOpts::Type(GeneveType::new(0x2)).into(),
+                //     GeneveEncOpts::Data(GeneveData::new(vec![
+                //         0x3456
+                //     ]))
+                //     .into(),
+                // ])),
+                // TcFilterFlowerOption::KeyEncOptsMask(EncOpts::Geneve(vec![
+                //     GeneveEncOpts::Class(GeneveClass::new(0x1)).into(),
+                //     GeneveEncOpts::Type(GeneveType::new(0x2)).into(),
+                //     GeneveEncOpts::Data(GeneveData::new(vec![
+                //         0x3456
+                //     ]))
+                //         .into(),
+                // ])),
+                // TcFilterFlowerOption::Action(vec![acts2, acts]),
+            ])
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let mut get = handle.traffic_chain(dst_index).get().ingress();
+        let mut get2 = get.execute();
+        let mut get3 = get2;
+        while let Some(msg) = get3.try_next().await.unwrap() {
+            println!("biscuits: {:?}", msg);
+        }
+    }
+    rt.block_on(_create_fancy_chain())
 }
 
 #[test]
@@ -606,8 +1335,8 @@ async fn _get_chains(ifindex: i32) -> Vec<TcMessage> {
                 break;
             }
             Err(NetlinkError(ErrorMessage {
-                                 code, header: _, ..
-                             })) => {
+                code, header: _, ..
+            })) => {
                 assert_eq!(code, std::num::NonZeroI32::new(-95));
                 eprintln!(
                     "The chain in traffic control is not supported, \

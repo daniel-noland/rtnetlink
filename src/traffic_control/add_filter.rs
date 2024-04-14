@@ -197,6 +197,16 @@ impl TrafficFilterNewRequest {
         self.message.attributes.push(TcAttribute::Options(nla_opts));
         Ok(self)
     }
+
+    pub fn chain(mut self, chain: u32) -> Result<Self, Error> {
+        if self.message.attributes.iter().any(|nla| matches!(nla, TcAttribute::Chain(_))) {
+            return Err(Error::InvalidNla(
+                "message chain has already been set.".to_string(),
+            ));
+        }
+        self.message.attributes.push(TcAttribute::Chain(chain));
+        Ok(self)
+    }
 }
 
 #[cfg(test)]

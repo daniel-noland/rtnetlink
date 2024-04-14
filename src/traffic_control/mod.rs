@@ -15,5 +15,12 @@ pub use self::del_qdisc::*;
 mod add_filter;
 pub use self::add_filter::*;
 
+mod add_chain;
+pub use self::add_chain::*;
+
+mod del_action;
+pub use self::del_action::*;
+
 #[cfg(test)]
 mod test;
+mod add_action;

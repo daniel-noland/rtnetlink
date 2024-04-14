@@ -5,9 +5,7 @@ use netlink_packet_core::NetlinkMessage;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::{sys::SocketAddr, ConnectionHandle};
 
-use crate::{
-    AddressHandle, Error, LinkHandle, NeighbourHandle, RouteHandle, RuleHandle,
-};
+use crate::{AddressHandle, Error, LinkHandle, NeighbourHandle, RouteHandle, RuleHandle, TrafficActionHandle};
 #[cfg(not(target_os = "freebsd"))]
 use crate::{
     QDiscHandle, TrafficChainHandle, TrafficClassHandle, TrafficFilterHandle,
@@ -97,5 +95,10 @@ impl Handle {
     #[cfg(not(target_os = "freebsd"))]
     pub fn traffic_chain(&self, ifindex: i32) -> TrafficChainHandle {
         TrafficChainHandle::new(self.clone(), ifindex)
+    }
+
+    #[cfg(not(target_os = "freebsd"))]
+    pub fn traffic_action(&self) -> TrafficActionHandle {
+        TrafficActionHandle::new(self.clone())
     }
 }
