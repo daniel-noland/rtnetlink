@@ -56,7 +56,8 @@ pub use crate::rule::{
 #[cfg(not(target_os = "freebsd"))]
 pub use crate::traffic_control::{
     QDiscDelRequest, QDiscGetRequest, QDiscHandle, QDiscNewRequest,
-    TrafficChainGetRequest, TrafficChainHandle, TrafficClassGetRequest,
-    TrafficClassHandle, TrafficFilterGetRequest, TrafficFilterHandle,
-    TrafficFilterNewRequest,
+    TrafficActionDelRequest, TrafficActionGetRequest, TrafficActionHandle,
+    TrafficActionKind, TrafficActionNewRequest, TrafficChainGetRequest,
+    TrafficChainHandle, TrafficClassGetRequest, TrafficClassHandle,
+    TrafficFilterGetRequest, TrafficFilterHandle, TrafficFilterNewRequest,
 };
