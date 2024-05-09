@@ -13,6 +13,7 @@ use nix::libc::RTM_NEWACTION;
 
 use crate::{try_rtnl, Error, Handle};
 
+#[derive(Debug, Clone)]
 pub struct TrafficActionNewRequest {
     handle: Handle,
     message: TcActionMessage,

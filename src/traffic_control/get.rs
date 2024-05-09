@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 use futures::{
     future::{self, Either},
     stream::{StreamExt, TryStream},
@@ -173,35 +172,80 @@ impl TrafficChainGetRequest {
     }
 }
 
+/// Request to retrieve traffic actions from the kernel.
+/// Equivalent to
+///
+/// ```bash
+/// tc actions list action $action_type
+/// ```
+#[derive(Debug, Clone)]
+#[must_use]
 pub struct TrafficActionGetRequest {
     handle: Handle,
     message: TcActionMessage,
+}
+
+/// The kind of traffic action.
+///
+/// This is a list of known traffic actions.
+/// If the kernel returns an unknown action, it will be represented as
+/// `Other(String)`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TrafficActionKind {
+    /// Used for mirroring and redirecting packets.
+    Mirror,
+    /// Used for network address translation.
+    Nat,
+    /// Other action type not yet directly supported by this library.
+    Other(String),
+}
+
+impl<T: AsRef<str>> From<T> for TrafficActionKind {
+    fn from(kind: T) -> Self {
+        match kind.as_ref() {
+            "mirred" => TrafficActionKind::Mirror,
+            "nat" => TrafficActionKind::Nat,
+            _ => TrafficActionKind::Other(kind.as_ref().into()),
+        }
+    }
+}
+
+impl From<TrafficActionKind> for String {
+    fn from(kind: TrafficActionKind) -> Self {
+        match kind {
+            TrafficActionKind::Mirror => "mirred".into(),
+            TrafficActionKind::Nat => "nat".into(),
+            TrafficActionKind::Other(kind) => kind,
+        }
+    }
 }
 
 impl TrafficActionGetRequest {
     pub(crate) fn new(handle: Handle) -> Self {
         let mut message = TcActionMessage::default();
         message.header.family = AddressFamily::Unspec;
-        Self { handle, message }
-    }
-
-    // TODO: Kind really should be an enum with an `Other(String)` option.
-    pub fn kind(mut self, action: String) -> Self {
-        let kind = TcActionAttribute::Kind(action);
-        let mut tc_action = TcAction::default();
-        tc_action.attributes.push(kind);
-        let acts = TcActionMessageAttribute::Actions(vec![tc_action]);
-        self.message.attributes.push(acts);
         let flags = TcActionMessageAttribute::Flags(
             TcActionMessageFlagsWithSelector::new(
                 TcActionMessageFlags::LargeDump,
             ),
         );
-        self.message.attributes.push(flags);
+        message.attributes.push(flags);
+        Self { handle, message }
+    }
+
+    /// Specify the kind of the action to retrieve.
+    pub fn kind<T: Into<TrafficActionKind>>(mut self, kind: T) -> Self {
+        let mut tc_action = TcAction::default();
+        tc_action
+            .attributes
+            .push(TcActionAttribute::Kind(String::from(kind.into())));
+        let acts = TcActionMessageAttribute::Actions(vec![tc_action]);
+        self.message.attributes.push(acts);
         self
     }
 
     /// Execute the request
+    #[must_use]
     pub fn execute(
         self,
     ) -> impl TryStream<Ok = TcActionMessage, Error = Error> {
