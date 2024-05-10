@@ -10,7 +10,7 @@ use netlink_packet_route::tc::TcMirrorActionType::EgressRedir;
 use netlink_packet_route::tc::{
     TcAction, TcActionAttribute, TcActionMessage, TcActionMessageAttribute,
     TcActionMirrorOption, TcActionNatOption, TcActionOption, TcActionType,
-    TcMirror, TcNatFlags,
+    TcMirror, TcNat, TcNatFlags,
 };
 use netlink_packet_route::{
     tc::{TcAttribute, TcMessage},
@@ -471,10 +471,10 @@ fn test_get_mirred_actions() {
     Runtime::new().unwrap().block_on(_test());
 }
 
-// NOTE: I consider this test to be overly complex in its structure.
-// It seems like we have an API usability problem.
-// I needed to do a fairly large amount of destructuring to get some
-// fairly basic data.
+/// NOTE: I consider this test to be overly complex in its structure.
+/// It seems like we have an API usability problem.
+/// I needed to do a fairly large amount of destructuring to get some
+/// fairly basic data.
 #[test]
 #[cfg_attr(not(feature = "test_as_root"), ignore)]
 fn test_add_mirror_action() {
@@ -556,6 +556,8 @@ fn test_del_mirror_action() {
         _add_test_mirred_action(99);
         let (connection, handle, _) = new_connection().unwrap();
         tokio::spawn(connection);
+        let mirrors = _get_actions(TrafficActionKind::Mirror).await;
+        assert_eq!(mirrors.len(), 1);
         let mut tc_action = TcAction::default();
         tc_action
             .attributes
@@ -647,6 +649,93 @@ fn test_get_nat_actions() {
         assert_eq!(nat_params.new_addr, Ipv4Addr::new(5, 6, 7, 8));
         assert_eq!(nat_params.mask, Ipv4Addr::new(255, 255, 255, 255));
         assert_eq!(nat_params.flags, TcNatFlags::empty());
+    }
+    Runtime::new().unwrap().block_on(_test());
+}
+
+/// NOTE: I consider this test to be overly complex in its structure.
+/// It seems like we have an API usability problem.
+/// I needed to do a fairly large amount of destructuring to get some
+/// fairly basic data.
+#[test]
+#[cfg_attr(not(feature = "test_as_root"), ignore)]
+fn test_add_nat_action() {
+    async fn _test() {
+        _add_test_dummy_interface();
+        _flush_test_nat_action();
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let index = 99;
+        let mut tc_action = TcAction::default();
+        tc_action
+            .attributes
+            .push(TcActionAttribute::Kind("nat".to_string()));
+        let mut nat_options = TcNat::default();
+        nat_options.generic.index = index;
+        nat_options.generic.action = Stolen;
+        nat_options.old_addr = Ipv4Addr::new(1, 2, 3, 4);
+        nat_options.new_addr = Ipv4Addr::new(5, 6, 7, 8);
+        nat_options.mask = Ipv4Addr::new(255, 255, 255, 255);
+        tc_action.attributes.push(TcActionAttribute::Options(vec![
+            TcActionOption::Nat(TcActionNatOption::Parms(nat_options)),
+        ]));
+        let req: TrafficActionNewRequest =
+            handle.traffic_action().add().action(tc_action);
+        let mut resp = req.execute().await;
+        if let Some(msg) = resp.try_next().await.unwrap() {
+            eprintln!("{:?}", msg);
+            panic!("Unexpected response message");
+        };
+        let resp = _get_actions(TrafficActionKind::Nat).await;
+        assert_eq!(resp.len(), 1);
+        let mut checked_interior_props = false;
+        resp[0].attributes.iter().for_each(|attr| {
+            if let TcActionMessageAttribute::Actions(acts) = attr {
+                acts.iter().for_each(|act| {
+                    act.attributes.iter().for_each(|act_attr| {
+                        if let TcActionAttribute::Options(opts) = act_attr {
+                            opts.iter().for_each(|opt| {
+                                if let TcActionOption::Nat(
+                                    TcActionNatOption::Parms(parms),
+                                ) = opt
+                                {
+                                    assert_eq!(parms.generic.index, index);
+                                    assert_eq!(parms.generic.refcnt, 1);
+                                    assert_eq!(parms.generic.bindcnt, 0);
+                                    assert_eq!(parms.generic.action, Stolen);
+                                    checked_interior_props = true;
+                                }
+                            })
+                        }
+                    })
+                })
+            }
+        });
+        assert!(checked_interior_props);
+    }
+    Runtime::new().unwrap().block_on(_test());
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_as_root"), ignore)]
+fn test_del_nat_action() {
+    async fn _test() {
+        _flush_test_nat_action();
+        _add_test_dummy_interface();
+        _add_test_nat_action(99);
+        let (connection, handle, _) = new_connection().unwrap();
+        tokio::spawn(connection);
+        let nats = _get_actions(TrafficActionKind::Nat).await;
+        assert_eq!(nats.len(), 1);
+        let mut tc_action = TcAction::default();
+        tc_action
+            .attributes
+            .push(TcActionAttribute::Kind("nat".to_string()));
+        tc_action.attributes.push(TcActionAttribute::Index(99));
+        let req = handle.traffic_action().del().action(tc_action);
+        req.execute().await.unwrap();
+        let nats = _get_actions(TrafficActionKind::Nat).await;
+        assert!(nats.is_empty());
     }
     Runtime::new().unwrap().block_on(_test());
 }
