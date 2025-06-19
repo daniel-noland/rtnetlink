@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use futures::stream::StreamExt;
-
+use netlink_packet_route::tc::{TcFilterFlower, TcFilterFlowerOption};
 use crate::{
     packet_core::{NetlinkMessage, NLM_F_ACK, NLM_F_REQUEST},
     packet_route::{
@@ -141,6 +141,25 @@ impl TrafficFilterNewRequest {
         for opt in options {
             nla_opts.push(TcOption::U32(opt.clone()));
         }
+        self.message.attributes.push(TcAttribute::Options(nla_opts));
+        Ok(self)
+    }
+
+    pub fn flower(mut self, options: &[TcFilterFlowerOption]) -> Result<Self, Error> {
+        if self
+            .message
+            .attributes
+            .iter()
+            .any(|nla| matches!(nla, TcAttribute::Kind(_)))
+        {
+            return Err(Error::InvalidNla(
+                "message kind has already been set.".to_string(),
+            ));
+        }
+        self.message
+            .attributes
+            .push(TcAttribute::Kind(TcFilterFlower::KIND.to_string()));
+        let nla_opts: Vec<_> = options.iter().map(|opt| TcOption::Flower(opt.clone())).collect();
         self.message.attributes.push(TcAttribute::Options(nla_opts));
         Ok(self)
     }
