@@ -5,7 +5,10 @@ use futures::{
     FutureExt,
 };
 use netlink_packet_core::{NetlinkMessage, NLM_F_DUMP, NLM_F_REQUEST};
-use netlink_packet_route::tc::{TcAction, TcActionAttribute, TcActionMessage, TcActionMessageAttribute, TcActionMessageFlags, TcActionMessageFlagsWithSelector, TcAttribute};
+use netlink_packet_route::tc::{
+    TcAction, TcActionAttribute, TcActionMessage, TcActionMessageAttribute, TcActionMessageFlags,
+    TcActionMessageFlagsWithSelector,
+};
 use netlink_packet_route::{
     tc::{TcHandle, TcMessage},
     AddressFamily, RouteNetlinkMessage,
@@ -34,18 +37,15 @@ impl QDiscGetRequest {
             message,
         } = self;
 
-        let mut req = NetlinkMessage::from(
-            RouteNetlinkMessage::GetQueueDiscipline(message),
-        );
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::GetQueueDiscipline(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
 
         match handle.request(req) {
-            Ok(response) => Either::Left(response.map(move |msg| {
-                Ok(try_rtnl!(msg, RouteNetlinkMessage::NewQueueDiscipline))
-            })),
-            Err(e) => {
-                Either::Right(future::err::<TcMessage, Error>(e).into_stream())
-            }
+            Ok(response) => Either::Left(
+                response
+                    .map(move |msg| Ok(try_rtnl!(msg, RouteNetlinkMessage::NewQueueDiscipline))),
+            ),
+            Err(e) => Either::Right(future::err::<TcMessage, Error>(e).into_stream()),
         }
     }
 
@@ -81,17 +81,14 @@ impl TrafficClassGetRequest {
             message,
         } = self;
 
-        let mut req =
-            NetlinkMessage::from(RouteNetlinkMessage::GetTrafficClass(message));
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::GetTrafficClass(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
 
         match handle.request(req) {
-            Ok(response) => Either::Left(response.map(move |msg| {
-                Ok(try_rtnl!(msg, RouteNetlinkMessage::NewTrafficClass))
-            })),
-            Err(e) => {
-                Either::Right(future::err::<TcMessage, Error>(e).into_stream())
-            }
+            Ok(response) => Either::Left(
+                response.map(move |msg| Ok(try_rtnl!(msg, RouteNetlinkMessage::NewTrafficClass))),
+            ),
+            Err(e) => Either::Right(future::err::<TcMessage, Error>(e).into_stream()),
         }
     }
 }
@@ -116,18 +113,14 @@ impl TrafficFilterGetRequest {
             message,
         } = self;
 
-        let mut req = NetlinkMessage::from(
-            RouteNetlinkMessage::GetTrafficFilter(message),
-        );
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::GetTrafficFilter(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
 
         match handle.request(req) {
-            Ok(response) => Either::Left(response.map(move |msg| {
-                Ok(try_rtnl!(msg, RouteNetlinkMessage::NewTrafficFilter))
-            })),
-            Err(e) => {
-                Either::Right(future::err::<TcMessage, Error>(e).into_stream())
-            }
+            Ok(response) => Either::Left(
+                response.map(move |msg| Ok(try_rtnl!(msg, RouteNetlinkMessage::NewTrafficFilter))),
+            ),
+            Err(e) => Either::Right(future::err::<TcMessage, Error>(e).into_stream()),
         }
     }
 
@@ -167,17 +160,14 @@ impl TrafficChainGetRequest {
             message,
         } = self;
 
-        let mut req =
-            NetlinkMessage::from(RouteNetlinkMessage::GetTrafficChain(message));
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::GetTrafficChain(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
 
         match handle.request(req) {
-            Ok(response) => Either::Left(response.map(move |msg| {
-                Ok(try_rtnl!(msg, RouteNetlinkMessage::NewTrafficChain))
-            })),
-            Err(e) => {
-                Either::Right(future::err::<TcMessage, Error>(e).into_stream())
-            }
+            Ok(response) => Either::Left(
+                response.map(move |msg| Ok(try_rtnl!(msg, RouteNetlinkMessage::NewTrafficChain))),
+            ),
+            Err(e) => Either::Right(future::err::<TcMessage, Error>(e).into_stream()),
         }
     }
 }
@@ -234,11 +224,9 @@ impl TrafficActionGetRequest {
     pub(crate) fn new(handle: Handle) -> Self {
         let mut message = TcActionMessage::default();
         message.header.family = AddressFamily::Unspec;
-        let flags = TcActionMessageAttribute::Flags(
-            TcActionMessageFlagsWithSelector::new(
-                TcActionMessageFlags::LargeDump,
-            ),
-        );
+        let flags = TcActionMessageAttribute::Flags(TcActionMessageFlagsWithSelector::new(
+            TcActionMessageFlags::LargeDump,
+        ));
         message.attributes.push(flags);
         Self { handle, message }
     }
@@ -256,26 +244,20 @@ impl TrafficActionGetRequest {
 
     /// Execute the request
     #[must_use]
-    pub fn execute(
-        self,
-    ) -> impl TryStream<Ok = TcActionMessage, Error = Error> {
+    pub fn execute(self) -> impl TryStream<Ok = TcActionMessage, Error = Error> {
         let Self {
             mut handle,
             message,
         } = self;
 
-        let mut req = NetlinkMessage::from(
-            RouteNetlinkMessage::GetTrafficAction(message),
-        );
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::GetTrafficAction(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
 
         match handle.request(req) {
-            Ok(response) => Either::Left(response.map(move |msg| {
-                Ok(try_rtnl!(msg, RouteNetlinkMessage::GetTrafficAction))
-            })),
-            Err(e) => Either::Right(
-                future::err::<TcActionMessage, Error>(e).into_stream(),
+            Ok(response) => Either::Left(
+                response.map(move |msg| Ok(try_rtnl!(msg, RouteNetlinkMessage::GetTrafficAction))),
             ),
+            Err(e) => Either::Right(future::err::<TcActionMessage, Error>(e).into_stream()),
         }
     }
 }
