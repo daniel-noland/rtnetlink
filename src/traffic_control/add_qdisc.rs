@@ -74,6 +74,26 @@ impl QDiscNewRequest {
             .push(TcAttribute::Kind("ingress".to_string()));
         self
     }
+
+    /// New a clsact qdisc
+    pub fn clsact(mut self) -> Self {
+        self.message.header.parent = TcHandle::CLSACT;
+        self.message.header.handle = TcHandle::from(0xffff0000);
+        self.message
+            .attributes
+            .push(TcAttribute::Kind("clsact".to_string()));
+        self
+    }
+
+    pub fn ingress_block(&mut self, block: u32) -> &mut Self {
+        self.message.attributes.push(TcAttribute::IngressBlock(block));
+        self
+    }
+
+    pub fn egress_block(&mut self, block: u32) -> &mut Self {
+        self.message.attributes.push(TcAttribute::EgressBlock(block));
+        self
+    }
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ use crate::{
     try_nl, Error, Handle,
 };
 
+
 #[derive(Debug, Clone)]
 pub struct TrafficFilterNewRequest {
     handle: Handle,
@@ -162,6 +163,11 @@ impl TrafficFilterNewRequest {
         let nla_opts: Vec<_> = options.iter().map(|opt| TcOption::Flower(opt.clone())).collect();
         self.message.attributes.push(TcAttribute::Options(nla_opts));
         Ok(self)
+    }
+    
+    pub fn chain(mut self, chain: u32) -> Self {
+        self.message.attributes.push(TcAttribute::Chain(chain));
+        self
     }
 
     /// Use u32 to implement traffic redirect.

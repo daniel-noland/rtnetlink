@@ -5,10 +5,7 @@ use futures::{
     FutureExt,
 };
 use netlink_packet_core::{NetlinkMessage, NLM_F_DUMP, NLM_F_REQUEST};
-use netlink_packet_route::tc::{
-    TcAction, TcActionAttribute, TcActionMessage, TcActionMessageAttribute,
-    TcActionMessageFlags, TcActionMessageFlagsWithSelector,
-};
+use netlink_packet_route::tc::{TcAction, TcActionAttribute, TcActionMessage, TcActionMessageAttribute, TcActionMessageFlags, TcActionMessageFlagsWithSelector, TcAttribute};
 use netlink_packet_route::{
     tc::{TcHandle, TcMessage},
     AddressFamily, RouteNetlinkMessage,
@@ -137,6 +134,15 @@ impl TrafficFilterGetRequest {
     /// Set parent to root.
     pub fn root(mut self) -> Self {
         self.message.header.parent = TcHandle::ROOT;
+        self
+    }
+
+    /// Set parent to ingress
+    pub fn ingress(mut self) -> Self {
+        self.message.header.parent = TcHandle {
+            major: 0xffff,
+            minor: TcHandle::MIN_INGRESS,
+        };
         self
     }
 }

@@ -8,10 +8,7 @@ use futures::{
 use netlink_packet_core::{
     NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
 };
-use netlink_packet_route::{
-    neighbour::{NeighbourFlags, NeighbourMessage},
-    RouteNetlinkMessage,
-};
+use netlink_packet_route::{neighbour::{NeighbourFlags, NeighbourMessage}, AddressFamily, RouteNetlinkMessage};
 
 use crate::{Error, Handle, IpVersion};
 
@@ -38,6 +35,16 @@ impl NeighbourGetRequest {
         self
     }
 
+    pub fn fdb(mut self) -> Self {
+        self.message.header.family = AddressFamily::Bridge;
+        self
+    }
+
+    pub fn flags(mut self, flags: NeighbourFlags) -> Self {
+        self.message.header.flags |= flags;
+        self
+    }
+
     /// Execute the request
     pub fn execute(
         self,
@@ -49,7 +56,7 @@ impl NeighbourGetRequest {
 
         let mut req =
             NetlinkMessage::from(RouteNetlinkMessage::GetNeighbour(message));
-        req.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
+        req.header.flags |= NLM_F_REQUEST | NLM_F_DUMP;
 
         match handle.request(req) {
             Ok(response) => Either::Left(response.map(move |msg| {
