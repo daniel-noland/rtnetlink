@@ -10,6 +10,7 @@ mod add_chain;
 mod add_filter;
 mod add_qdisc;
 mod del_action;
+mod del_chain;
 mod del_filter;
 mod del_qdisc;
 mod get;
@@ -23,6 +24,7 @@ pub use self::add_chain::TrafficChainNewRequest;
 pub use self::add_filter::TrafficFilterNewRequest;
 pub use self::add_qdisc::QDiscNewRequest;
 pub use self::del_action::TrafficActionDelRequest;
+pub use self::del_chain::TrafficChainDelRequest;
 pub use self::del_filter::TrafficFilterDelRequest;
 pub use self::del_qdisc::QDiscDelRequest;
 pub use self::get::{

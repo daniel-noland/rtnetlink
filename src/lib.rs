@@ -57,8 +57,8 @@ pub use crate::rule::{
 pub use crate::traffic_control::{
     QDiscDelRequest, QDiscGetRequest, QDiscHandle, QDiscNewRequest,
     TrafficActionDelRequest, TrafficActionGetRequest, TrafficActionHandle,
-    TrafficActionKind, TrafficActionNewRequest, TrafficChainGetRequest,
-    TrafficChainHandle, TrafficChainNewRequest, TrafficClassGetRequest,
-    TrafficClassHandle, TrafficFilterGetRequest, TrafficFilterHandle,
-    TrafficFilterNewRequest,
+    TrafficActionKind, TrafficActionNewRequest, TrafficChainDelRequest,
+    TrafficChainGetRequest, TrafficChainHandle, TrafficChainNewRequest,
+    TrafficClassGetRequest, TrafficClassHandle, TrafficFilterGetRequest,
+    TrafficFilterHandle, TrafficFilterNewRequest,
 };
