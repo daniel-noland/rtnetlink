@@ -61,6 +61,12 @@ impl TrafficFilterNewRequest {
         self
     }
 
+    /// Set the id of the filter
+    pub fn handle(mut self, handle: u32) -> Self {
+        self.message.header.handle = TcHandle::from(handle);
+        self
+    }
+
     /// Set block index.
     /// Equivalent to `block BLOCK_INDEX`.
     pub fn block(mut self, block_index: u32) -> Self {
