@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-use futures::stream::StreamExt;
-use netlink_packet_route::tc::{TcFilterFlower, TcFilterFlowerOption};
 use crate::{
     packet_core::{NetlinkMessage, NLM_F_ACK, NLM_F_REQUEST},
     packet_route::{
@@ -16,7 +14,8 @@ use crate::{
     },
     try_nl, Error, Handle,
 };
-
+use futures::stream::StreamExt;
+use netlink_packet_route::tc::{TcFilterFlower, TcFilterFlowerOption};
 
 #[derive(Debug, Clone)]
 pub struct TrafficFilterNewRequest {
@@ -152,7 +151,10 @@ impl TrafficFilterNewRequest {
         Ok(self)
     }
 
-    pub fn flower(mut self, options: &[TcFilterFlowerOption]) -> Result<Self, Error> {
+    pub fn flower(
+        mut self,
+        options: &[TcFilterFlowerOption],
+    ) -> Result<Self, Error> {
         if self
             .message
             .attributes
@@ -166,11 +168,14 @@ impl TrafficFilterNewRequest {
         self.message
             .attributes
             .push(TcAttribute::Kind(TcFilterFlower::KIND.to_string()));
-        let nla_opts: Vec<_> = options.iter().map(|opt| TcOption::Flower(opt.clone())).collect();
+        let nla_opts: Vec<_> = options
+            .iter()
+            .map(|opt| TcOption::Flower(opt.clone()))
+            .collect();
         self.message.attributes.push(TcAttribute::Options(nla_opts));
         Ok(self)
     }
-    
+
     pub fn chain(mut self, chain: u32) -> Self {
         self.message.attributes.push(TcAttribute::Chain(chain));
         self
