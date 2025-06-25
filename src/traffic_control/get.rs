@@ -255,9 +255,15 @@ impl TrafficActionGetRequest {
 
         match handle.request(req) {
             Ok(response) => Either::Left(
-                response.map(move |msg| Ok(try_rtnl!(msg, RouteNetlinkMessage::GetTrafficAction))),
+                response.map(move |msg|
+                    Ok(try_rtnl!(msg, RouteNetlinkMessage::GetTrafficAction))
+                ),
             ),
             Err(e) => Either::Right(future::err::<TcActionMessage, Error>(e).into_stream()),
         }
+    }
+
+    pub fn message_mut(&mut self) -> &mut TcActionMessage {
+        &mut self.message
     }
 }
