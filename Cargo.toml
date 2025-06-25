@@ -23,7 +23,7 @@ log = "0.4.8"
 thiserror = "2.0.12"
 netlink-sys = { version = "0.8" }
 netlink-packet-utils = { version = "0.6.0" }
-netlink-packet-route = { path = "../netlink-packet-route" }
+netlink-packet-route = { git = "https://github.com/githedgehog/netlink-packet-route.git", branch = "pr/daniel-noland/swing2", default-features = false, features = [] }
 netlink-packet-core = { version = "0.7" }
 netlink-proto = { default-features = false, version = "0.11" }
 nix = { version = "0.30.1", default-features = false, features = ["fs", "mount", "sched", "signal"] }
