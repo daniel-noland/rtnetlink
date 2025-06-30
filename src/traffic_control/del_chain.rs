@@ -45,6 +45,12 @@ impl TrafficChainDelRequest {
         self
     }
 
+    /// Set parent qdisc
+    pub fn parent(mut self, parent: TcHandle) -> Self {
+        self.message.header.parent = parent;
+        self
+    }
+
     /// Execute the request
     pub async fn execute(self) -> Result<(), Error> {
         let Self {

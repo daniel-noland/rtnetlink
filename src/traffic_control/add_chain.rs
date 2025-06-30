@@ -5,7 +5,10 @@ use futures::StreamExt;
 use netlink_packet_core::{
     NetlinkMessage, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, NLM_F_REQUEST,
 };
-use netlink_packet_route::tc::{TcAttribute, TcFilterFlower, TcFilterFlowerOption, TcHandle, TcHeader, TcMessage, TcOption};
+use netlink_packet_route::tc::{
+    TcAttribute, TcFilterFlower, TcFilterFlowerOption, TcHandle, TcHeader,
+    TcMessage, TcOption,
+};
 use netlink_packet_route::RouteNetlinkMessage;
 
 pub struct TrafficChainNewRequest {
@@ -94,6 +97,12 @@ impl TrafficChainNewRequest {
             major: 0xffff,
             minor: TcHandle::MIN_INGRESS,
         };
+        self
+    }
+
+    /// Set parent qdisc
+    pub fn parent(mut self, parent: TcHandle) -> Self {
+        self.message.header.parent = parent;
         self
     }
 }
